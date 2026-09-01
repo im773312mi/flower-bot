@@ -2,6 +2,7 @@ import os
 import json
 import random
 import time
+import re
 from datetime import date
 import discord
 from discord.ext import commands
@@ -63,15 +64,19 @@ USER_MESSAGE_TIMES = {}
 # 指定擁有者 Username 白名單
 ADMIN_USERNAMES = ["muri_xo"]
 
-# 3. 稀有度概率 (60/30/8/2) 與 Discord 顏色標籤對應表
+# AmariBot 的官方 Bot ID
+AMARIBOT_ID = 339831437996752896
+
+# 3. 稀有度顏色與 Discord 標籤對應表
 RARITY_CONFIG = {
+    "凡": {"color": 0x9CA3AF, "emoji": "⚪", "weight": 60.0},
     "普": {"color": 0x3B82F6, "emoji": "🔵", "weight": 60.0},
     "珍": {"color": 0xA855F7, "emoji": "🟣", "weight": 30.0},
     "華": {"color": 0xF97316, "emoji": "🟠", "weight": 8.0},
     "仙": {"color": 0xEF4444, "emoji": "🔴", "weight": 2.0}
 }
 
-# 4. 初始化 Discord Bot (開啟特權 Intent)
+# 4. 初始化 Discord Bot
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -100,7 +105,7 @@ class FlowerSelect(discord.ui.Select):
             return
         
         flower = matched.iloc[0]
-        rarity = flower['rarity']
+        rarity = flower.get('rarity', '凡')
         config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
 
         embed = discord.Embed(
@@ -183,9 +188,42 @@ async def on_ready():
     except Exception as e:
         print(f"❌ 指令同步失敗: {e}")
 
-# --- 聊天發言賺取 💮 (一分鐘最多 5 💮) ---
+# --- 訊息監聽：1. 聊天賺 💮 / 2. 監聽 AmariBot 升級通知對應 Excel Column F 派花 ---
 @bot.event
 async def on_message(message):
+    if message.author.id == AMARIBOT_ID or message.author.name.lower() == "amaribot":
+        if message.mentions:
+            leveled_user = message.mentions[0]
+            match = re.search(r'(?:level|lv|LV|Level)\s*(\d+)', message.content)
+            if not match:
+                match = re.search(r'(\d+)', message.content)
+            
+            if match:
+                lvl_num = int(match.group(1))
+                reward_flower = None
+                
+                if len(df_flowers.columns) >= 6:
+                    col_f_name = df_flowers.columns[5]
+                    matched_flower = df_flowers[df_flowers[col_f_name].astype(str).str.strip() == str(lvl_num)]
+                    if not matched_flower.empty:
+                        reward_flower = matched_flower.iloc[0]['Chinese']
+                
+                if not reward_flower:
+                    fan_flowers = df_flowers[df_flowers['rarity'] == '凡']
+                    if not fan_flowers.empty:
+                        reward_flower = fan_flowers.sample(n=1).iloc[0]['Chinese']
+
+                if reward_flower:
+                    inventory = load_inventory()
+                    user_data = get_user_data(inventory, str(leveled_user.id))
+                    user_data["flowers"][reward_flower] = user_data["flowers"].get(reward_flower, 0) + 1
+                    save_inventory(inventory)
+                    
+                    await message.channel.send(
+                        f"🌸 恭喜 {leveled_user.mention} 升到了 **Lv.{lvl_num}**！獲得了專屬花朵：**【{reward_flower}】**！✨（已收納至 `/bag`）"
+                    )
+        return
+
     if message.author.bot:
         return
 
@@ -206,7 +244,9 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# --- /add_coins (管理員專用加幣指令) ---
+# ==================== 管理員專用測試指令 ====================
+
+# --- /add_coins (增加 💮 貨幣) ---
 @bot.tree.command(name="add_coins", description="【管理員專用】發放 💮 貨幣給指定的玩家")
 @app_commands.describe(target="目標玩家", amount="增加的 💮 數量")
 async def add_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
@@ -214,10 +254,7 @@ async def add_coins(interaction: discord.Interaction, target: discord.Member, am
     is_specified_owner = interaction.user.name in ADMIN_USERNAMES
 
     if not (is_admin or is_specified_owner):
-        await interaction.response.send_message(
-            "🚨 嗶嗶！抓到想偷偷印鈔票的小手手囉！這個是村長（管理員）專屬的魔法指令啦～ 🌸",
-            ephemeral=True
-        )
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
         return
 
     if amount <= 0:
@@ -233,6 +270,96 @@ async def add_coins(interaction: discord.Interaction, target: discord.Member, am
         f"👑 **管理員指令**\n已成功為 {target.mention} 發放 **{amount}** 💮！\n該玩家目前總資產：**{target_data['coins']}** 💮",
         ephemeral=True
     )
+
+# --- /remove_coins (扣除 💮 貨幣) ---
+@bot.tree.command(name="remove_coins", description="【管理員專用】扣除指定玩家的 💮 貨幣")
+@app_commands.describe(target="目標玩家", amount="扣除的 💮 數量")
+async def remove_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("🌸 扣除數量必須大於 0！", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_data = get_user_data(inventory, str(target.id))
+    current_coins = target_data.get("coins", 0)
+    
+    target_data["coins"] = max(0, current_coins - amount)
+    save_inventory(inventory)
+
+    await interaction.response.send_message(
+        f"🛠️ **測試/管理員指令**\n已成功從 {target.mention} 的錢包扣除 **{amount}** 💮！\n目前剩餘：**{target_data['coins']}** 💮",
+        ephemeral=True
+    )
+
+# --- /remove_flower (移除指定花朵) ---
+@bot.tree.command(name="remove_flower", description="【管理員專用】移除指定玩家背包中的花朵")
+@app_commands.describe(target="目標玩家", flower_name="要移除的花朵名稱", amount="移除數量（預設 1）")
+async def remove_flower(interaction: discord.Interaction, target: discord.Member, flower_name: str, amount: int = 1):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("🌸 移除數量必須大於 0！", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_data = get_user_data(inventory, str(target.id))
+    user_flowers = target_data.get("flowers", {})
+
+    if flower_name not in user_flowers:
+        await interaction.response.send_message(f"❌ {target.display_name} 的背包裡沒有 **{flower_name}**！", ephemeral=True)
+        return
+
+    user_flowers[flower_name] -= amount
+    if user_flowers[flower_name] <= 0:
+        del user_flowers[flower_name]
+
+    save_inventory(inventory)
+    await interaction.response.send_message(
+        f"🛠️ **測試/管理員指令**\n已從 {target.mention} 背包中移除 **{flower_name}** × {amount}！",
+        ephemeral=True
+    )
+
+# --- /reset_user (重置玩家資料) ---
+@bot.tree.command(name="reset_user", description="【管理員專用】完全重置指定玩家的所有資料（測試清理用）")
+@app_commands.describe(target="目標玩家")
+async def reset_user(interaction: discord.Interaction, target: discord.Member):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_id = str(target.id)
+
+    inventory[target_id] = {
+        "flowers": {},
+        "coins": 0,
+        "last_daily": "",
+        "gacha_date": "",
+        "gacha_count": 0
+    }
+    save_inventory(inventory)
+
+    await interaction.response.send_message(
+        f"🧹 **測試/管理員指令**\n已成功將 {target.mention} 的所有花朵、💮 錢包與簽到/抽卡紀錄重置為初始狀態！",
+        ephemeral=True
+    )
+
+# ============================================================
 
 # --- /daily (每日簽到 10~100 💮) ---
 @bot.tree.command(name="daily", description="每日簽到領取 10~100 💮 獎勵！")
@@ -285,13 +412,15 @@ async def gacha(interaction: discord.Interaction):
     user_data["gacha_count"] += 1
 
     rarities = list(RARITY_CONFIG.keys())
-    weights = [RARITY_CONFIG[r]["weight"] for r in rarities]
-    selected_rarity = random.choices(rarities, weights=weights, k=1)[0]
+    available_rarities = [r for r in rarities if r in df_flowers['rarity'].values]
+    weights = [RARITY_CONFIG[r]["weight"] for r in available_rarities]
+    
+    selected_rarity = random.choices(available_rarities, weights=weights, k=1)[0]
     
     filtered_df = df_flowers[df_flowers['rarity'] == selected_rarity]
     flower = filtered_df.sample(n=1).iloc[0]
     
-    config = RARITY_CONFIG[selected_rarity]
+    config = RARITY_CONFIG.get(selected_rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
     flower_name = flower['Chinese']
     
     user_data["flowers"][flower_name] = user_data["flowers"].get(flower_name, 0) + 1
