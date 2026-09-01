@@ -133,7 +133,7 @@ class TradeView(discord.ui.View):
     @discord.ui.button(label="✅ 同意交易", style=discord.ButtonStyle.green)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.target.id:
-            await interaction.response.send_message("❌ 只有被邀請交易的對象可以接受此交易！", ephemeral=True)
+            await interaction.response.send_message("🐾 爪子收起來～這是別人的交易邀請函啦！🌸", ephemeral=True)
             return
         
         inventory = load_inventory()
@@ -144,7 +144,7 @@ class TradeView(discord.ui.View):
         t_bag = t_data["flowers"]
 
         if s_bag.get(self.my_flower, 0) < self.my_amount or t_bag.get(self.target_flower, 0) < self.target_amount:
-            await interaction.response.send_message("❌ 交易失敗！其中一方的花朵數量不足。", ephemeral=True)
+            await interaction.response.send_message("🥀 交易失敗囉！其中一方的花朵數量好像不夠呢～", ephemeral=True)
             self.stop()
             return
 
@@ -167,10 +167,10 @@ class TradeView(discord.ui.View):
     @discord.ui.button(label="❌ 拒絕交易", style=discord.ButtonStyle.red)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id not in [self.target.id, self.sender.id]:
-            await interaction.response.send_message("❌ 你無法操作此按鈕！", ephemeral=True)
+            await interaction.response.send_message("🐾 爪子收起來～這是別人的交易邀請函啦！🌸", ephemeral=True)
             return
         for item in self.children: item.disabled = True
-        await interaction.response.edit_message(content="❌ 交易已取消。", view=self)
+        await interaction.response.edit_message(content="🍃 交易取消囉～🌸", view=self)
 
 # 6. Bot 事件與斜線指令
 
@@ -206,7 +206,7 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# --- /add_coins (管理員/指定 Username 專用加幣指令) ---
+# --- /add_coins (管理員專用加幣指令) ---
 @bot.tree.command(name="add_coins", description="【管理員專用】發放 💮 貨幣給指定的玩家")
 @app_commands.describe(target="目標玩家", amount="增加的 💮 數量")
 async def add_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
@@ -221,7 +221,7 @@ async def add_coins(interaction: discord.Interaction, target: discord.Member, am
         return
 
     if amount <= 0:
-        await interaction.response.send_message("❌ 數量必須大於 0！", ephemeral=True)
+        await interaction.response.send_message("🌸 發放數量至少要 1 💮 以上才可以唷！", ephemeral=True)
         return
 
     inventory = load_inventory()
@@ -234,8 +234,8 @@ async def add_coins(interaction: discord.Interaction, target: discord.Member, am
         ephemeral=True
     )
 
-# --- /daily (每日簽到) ---
-@bot.tree.command(name="daily", description="每日簽到領取 10~50 💮 獎勵！")
+# --- /daily (每日簽到 10~100 💮) ---
+@bot.tree.command(name="daily", description="每日簽到領取 10~100 💮 獎勵！")
 async def daily(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
@@ -243,10 +243,13 @@ async def daily(interaction: discord.Interaction):
 
     today_str = str(date.today())
     if user_data.get("last_daily") == today_str:
-        await interaction.response.send_message("❌ 你今天已經簽到過了，明天再來吧！", ephemeral=True)
+        await interaction.response.send_message(
+            "💤 今天的 💮 已經裝進口袋囉！小精靈正在休假中，明天再來花園簽到吧～ 🌸", 
+            ephemeral=True
+        )
         return
 
-    reward = random.randint(10, 50)
+    reward = random.randint(10, 100)
     user_data["coins"] = user_data.get("coins", 0) + reward
     user_data["last_daily"] = today_str
     save_inventory(inventory)
@@ -272,11 +275,8 @@ async def gacha(interaction: discord.Interaction):
     cost = 100 + (current_count * 20)
     
     if user_data["coins"] < cost:
-        next_draw_num = current_count + 1
         await interaction.response.send_message(
-            f"❌ 你的 💮 貨幣不足！\n"
-            f"今日第 **{next_draw_num}** 次抽卡需要 **{cost}** 💮，你目前只有 **{user_data['coins']}** 💮。\n"
-            f"💡 提示：多喺頻道聊天或使用 `/daily` 簽到賺取 💮 吧！",
+            f"🥺 嗚嗚～ 💮 小花幣不夠用了啦！這次開盲盒需要 **{cost}** 💮，但口袋裡只有 **{user_data['coins']}** 💮 呢！勤勞的花農多勞多得，快去頻道多聊聊天或是等明天 `/daily` 賺花幣吧～ 🌸✨",
             ephemeral=True
         )
         return
@@ -331,7 +331,7 @@ async def bag(interaction: discord.Interaction):
 
     if not user_flowers:
         await interaction.response.send_message(
-            f"🌸 你的背包空空如也，快去 `/gacha` 抽花吧！\n持有資產：**{user_data.get('coins', 0)}** 💮",
+            f"🌸 你的花園口袋還是空的呢！快去 `/gacha` 抽屬於你的第一朵花花吧～\n持有資產：**{user_data.get('coins', 0)}** 💮",
             ephemeral=True
         )
         return
@@ -367,10 +367,10 @@ async def show(interaction: discord.Interaction):
 @app_commands.describe(target="接收花朵的玩家", flower_name="要贈送的花朵名稱", amount="數量（預設 1）")
 async def send_flower(interaction: discord.Interaction, target: discord.Member, flower_name: str, amount: int = 1):
     if amount <= 0:
-        await interaction.response.send_message("❌ 數量必須大於 0！", ephemeral=True)
+        await interaction.response.send_message("🌸 至少要贈送 1 朵花花才可以唷！", ephemeral=True)
         return
     if target.id == interaction.user.id:
-        await interaction.response.send_message("❌ 你不能贈送花朵給自己！", ephemeral=True)
+        await interaction.response.send_message("🌸 不能選自己啦～去找其他花友吧！", ephemeral=True)
         return
 
     inventory = load_inventory()
@@ -381,7 +381,7 @@ async def send_flower(interaction: discord.Interaction, target: discord.Member, 
     current_count = sender_flowers.get(flower_name, 0)
 
     if current_count < amount:
-        await interaction.response.send_message(f"❌ 你的背包裡沒有足夠的 **{flower_name}**（目前擁有：{current_count}）！", ephemeral=True)
+        await interaction.response.send_message(f"🥀 口袋裡的 **{flower_name}** 數量不夠唷！（目前只有 {current_count} 朵）🌸", ephemeral=True)
         return
 
     sender_flowers[flower_name] -= amount
@@ -411,10 +411,10 @@ async def trade(
     target_amount: int = 1
 ):
     if target.id == interaction.user.id:
-        await interaction.response.send_message("❌ 你不能和自己交易！", ephemeral=True)
+        await interaction.response.send_message("🌸 不能選自己啦～去找其他花友吧！", ephemeral=True)
         return
     if my_amount <= 0 or target_amount <= 0:
-        await interaction.response.send_message("❌ 交易數量必須大於 0！", ephemeral=True)
+        await interaction.response.send_message("🌸 交易數量至少要 1 朵以上才可以唷！", ephemeral=True)
         return
 
     inventory = load_inventory()
@@ -422,10 +422,10 @@ async def trade(
     t_data = get_user_data(inventory, str(target.id))
 
     if s_data["flowers"].get(my_flower, 0) < my_amount:
-        await interaction.response.send_message(f"❌ 你背包里的 **{my_flower}** 數量不足！", ephemeral=True)
+        await interaction.response.send_message(f"🥀 口袋裡的 **{my_flower}** 數量不夠唷！🌸", ephemeral=True)
         return
     if t_data["flowers"].get(target_flower, 0) < target_amount:
-        await interaction.response.send_message(f"❌ {target.display_name} 的背包裡沒有足夠的 **{target_flower}**！", ephemeral=True)
+        await interaction.response.send_message(f"🥀 {target.display_name} 口袋裡的 **{target_flower}** 數量不夠唷！🌸", ephemeral=True)
         return
 
     view = TradeView(interaction.user, target, my_flower, my_amount, target_flower, target_amount)
