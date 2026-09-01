@@ -232,18 +232,15 @@ async def on_member_update(before, after):
         had_role = rookie_role in before.roles
         has_role = rookie_role in after.roles
         
-        # 當玩家剛拿到「新晉花農」身份組
         if not had_role and has_role:
             inventory = load_inventory()
             user_data = get_user_data(inventory, str(after.id))
             
-            # 檢查是否尚未領取過獎勵
             if not user_data.get("claimed_rookie_bonus", False):
                 user_data["coins"] = user_data.get("coins", 0) + 100
                 user_data["claimed_rookie_bonus"] = True
                 save_inventory(inventory)
                 
-                # 找到可發送訊息的頻道
                 target_channel = after.guild.system_channel or next(
                     (c for c in after.guild.text_channels if c.permissions_for(after.guild.me).send_messages),
                     None
@@ -504,7 +501,6 @@ async def gacha(interaction: discord.Interaction):
     )
     embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{selected_rarity}**", inline=True)
     embed.add_field(name="💸 本次消耗", value=f"**{cost}** 💮", inline=True)
-    embed.add_field(name="👛 剩餘資產", value=f"**{user_data['coins']}** 💮", inline=True)
     
     if pd.notna(flower['Link']):
         embed.set_image(url=flower['Link'])
