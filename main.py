@@ -344,7 +344,7 @@ async def bag(interaction: discord.Interaction):
     )
 
 # --- /show (公開展示清單) ---
-@bot.tree.command(name="show", description="向頻道大家展示你擁有的花朵與財產")
+@bot.tree.command(name="show", description="向頻道大家展示你擁有的花朵清單")
 async def show(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
@@ -352,7 +352,6 @@ async def show(interaction: discord.Interaction):
     user_flowers = user_data.get("flowers", {})
 
     embed = discord.Embed(title=f"🌸 {interaction.user.display_name} 的花卉收藏展", color=0x98FB98)
-    embed.add_field(name="👛 錢包資產", value=f"**{user_data.get('coins', 0)}** 💮", inline=False)
 
     if not user_flowers:
         embed.add_field(name="收藏列表", value="*目前還沒有任何花朵*", inline=False)
