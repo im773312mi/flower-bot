@@ -38,7 +38,8 @@ def get_user_data(inventory, user_id):
             "coins": 0,
             "last_daily": "",
             "gacha_date": "",
-            "gacha_count": 0
+            "gacha_count": 0,
+            "claimed_rookie_bonus": False
         }
     elif "flowers" not in inventory[user_id]:
         old_flowers = inventory[user_id]
@@ -47,7 +48,8 @@ def get_user_data(inventory, user_id):
             "coins": 0,
             "last_daily": "",
             "gacha_date": "",
-            "gacha_count": 0
+            "gacha_count": 0,
+            "claimed_rookie_bonus": False
         }
     
     data = inventory[user_id]
@@ -56,6 +58,7 @@ def get_user_data(inventory, user_id):
     data.setdefault("gacha_date", "")
     data.setdefault("gacha_count", 0)
     data.setdefault("flowers", {})
+    data.setdefault("claimed_rookie_bonus", False)
     return data
 
 # 防洗版計數器
@@ -67,7 +70,19 @@ ADMIN_USERNAMES = ["muri_xo"]
 # AmariBot 的官方 Bot ID
 AMARIBOT_ID = 339831437996752896
 
-# 3. 稀有度顏色與 Discord 標籤對應表
+# 3. 收集花朵總數 ➔ 對應 Discord 身份組名稱設定
+ROLE_THRESHOLDS = {
+    "初級花農": 10,
+    "中級花農": 25,
+    "高級花農": 50,
+    "中級花匠": 70,
+    "高級花匠": 100,
+    "卓越花匠": 140,
+    "七彩花使": 180,
+    "繽紛花使": 250
+}
+
+# 4. 稀有度顏色與 Discord 標籤對應表
 RARITY_CONFIG = {
     "凡": {"color": 0x9CA3AF, "emoji": "⚪", "weight": 60.0},
     "普": {"color": 0x3B82F6, "emoji": "🔵", "weight": 60.0},
@@ -76,13 +91,31 @@ RARITY_CONFIG = {
     "仙": {"color": 0xEF4444, "emoji": "🔴", "weight": 2.0}
 }
 
-# 4. 初始化 Discord Bot
+# 5. 初始化 Discord Bot
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 5. UI 組件定義
+# 自動檢測並發放花朵門檻身份組函式
+async def update_user_roles(guild: discord.Guild, member: discord.Member, user_data: dict, channel: discord.TextChannel = None):
+    if not guild or not member:
+        return
+    
+    user_flowers = user_data.get("flowers", {})
+    total_flowers = sum(user_flowers.values())
+    
+    for role_name, required_count in ROLE_THRESHOLDS.items():
+        if total_flowers >= required_count:
+            role = discord.utils.get(guild.roles, name=role_name)
+            if role and role not in member.roles:
+                try:
+                    await member.add_roles(role)
+                    print(f"✅ 已成功發放身份組【{role_name}】給 {member.display_name}")
+                except Exception as e:
+                    print(f"⚠️ 發放身份組【{role_name}】失敗: {e}")
+
+# 6. UI 組件定義
 
 class FlowerSelect(discord.ui.Select):
     def __init__(self, user_flowers, df_flowers):
@@ -163,6 +196,9 @@ class TradeView(discord.ui.View):
 
         save_inventory(inventory)
 
+        await update_user_roles(interaction.guild, self.sender, s_data, interaction.channel)
+        await update_user_roles(interaction.guild, self.target, t_data, interaction.channel)
+
         for item in self.children: item.disabled = True
         await interaction.response.edit_message(
             content=f"🎉 **交易成功！**\n{self.sender.mention} 用 **{self.my_flower}** × {self.my_amount} 與 {self.target.mention} 的 **{self.target_flower}** × {self.target_amount} 完成了交換！",
@@ -177,7 +213,7 @@ class TradeView(discord.ui.View):
         for item in self.children: item.disabled = True
         await interaction.response.edit_message(content="🍃 交易取消囉～🌸", view=self)
 
-# 6. Bot 事件與斜線指令
+# 7. Bot 事件與斜線指令
 
 @bot.event
 async def on_ready():
@@ -188,12 +224,43 @@ async def on_ready():
     except Exception as e:
         print(f"❌ 指令同步失敗: {e}")
 
+# --- 監聽玩家 Reaction Role 獲得「新晉花農」發放 100 💮 ---
+@bot.event
+async def on_member_update(before, after):
+    rookie_role = discord.utils.get(after.guild.roles, name="新晉花農")
+    if rookie_role:
+        had_role = rookie_role in before.roles
+        has_role = rookie_role in after.roles
+        
+        # 當玩家剛拿到「新晉花農」身份組
+        if not had_role and has_role:
+            inventory = load_inventory()
+            user_data = get_user_data(inventory, str(after.id))
+            
+            # 檢查是否尚未領取過獎勵
+            if not user_data.get("claimed_rookie_bonus", False):
+                user_data["coins"] = user_data.get("coins", 0) + 100
+                user_data["claimed_rookie_bonus"] = True
+                save_inventory(inventory)
+                
+                # 找到可發送訊息的頻道
+                target_channel = after.guild.system_channel or next(
+                    (c for c in after.guild.text_channels if c.permissions_for(after.guild.me).send_messages),
+                    None
+                )
+                if target_channel:
+                    await target_channel.send(
+                        f"🎉 歡迎 {after.mention} 成為 **【新晉花農】**！\n"
+                        f"🎁 已自動領取迎新禮包 **100** 💮！快去 `/gacha` 抽屬於你的第一朵花花吧～ 🌸✨"
+                    )
+
 # --- 訊息監聽：1. 聊天賺 💮 / 2. 監聽 AmariBot 升級通知對應 Excel Column F 派花 ---
 @bot.event
 async def on_message(message):
     if message.author.id == AMARIBOT_ID or message.author.name.lower() == "amaribot":
         if message.mentions:
             leveled_user = message.mentions[0]
+            
             match = re.search(r'(?:level|lv|LV|Level)\s*(\d+)', message.content)
             if not match:
                 match = re.search(r'(\d+)', message.content)
@@ -218,6 +285,8 @@ async def on_message(message):
                     user_data = get_user_data(inventory, str(leveled_user.id))
                     user_data["flowers"][reward_flower] = user_data["flowers"].get(reward_flower, 0) + 1
                     save_inventory(inventory)
+                    
+                    await update_user_roles(message.guild, leveled_user, user_data, message.channel)
                     
                     await message.channel.send(
                         f"🌸 恭喜 {leveled_user.mention} 升到了 **Lv.{lvl_num}**！獲得了專屬花朵：**【{reward_flower}】**！✨（已收納至 `/bag`）"
@@ -244,9 +313,8 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# ==================== 管理員專用測試指令 ====================
+# ==================== 管理員專用測試與發放指令 ====================
 
-# --- /add_coins (增加 💮 貨幣) ---
 @bot.tree.command(name="add_coins", description="【管理員專用】發放 💮 貨幣給指定的玩家")
 @app_commands.describe(target="目標玩家", amount="增加的 💮 數量")
 async def add_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
@@ -271,7 +339,6 @@ async def add_coins(interaction: discord.Interaction, target: discord.Member, am
         ephemeral=True
     )
 
-# --- /remove_coins (扣除 💮 貨幣) ---
 @bot.tree.command(name="remove_coins", description="【管理員專用】扣除指定玩家的 💮 貨幣")
 @app_commands.describe(target="目標玩家", amount="扣除的 💮 數量")
 async def remove_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
@@ -298,7 +365,6 @@ async def remove_coins(interaction: discord.Interaction, target: discord.Member,
         ephemeral=True
     )
 
-# --- /remove_flower (移除指定花朵) ---
 @bot.tree.command(name="remove_flower", description="【管理員專用】移除指定玩家背包中的花朵")
 @app_commands.describe(target="目標玩家", flower_name="要移除的花朵名稱", amount="移除數量（預設 1）")
 async def remove_flower(interaction: discord.Interaction, target: discord.Member, flower_name: str, amount: int = 1):
@@ -331,8 +397,7 @@ async def remove_flower(interaction: discord.Interaction, target: discord.Member
         ephemeral=True
     )
 
-# --- /reset_user (重置玩家資料) ---
-@bot.tree.command(name="reset_user", description="【管理員專用】完全重置指定玩家的所有資料（測試清理用）")
+@bot.tree.command(name="reset_user", description="【管理員專用】完全重置指定玩家的所有資料")
 @app_commands.describe(target="目標玩家")
 async def reset_user(interaction: discord.Interaction, target: discord.Member):
     is_admin = interaction.user.guild_permissions.administrator
@@ -350,7 +415,8 @@ async def reset_user(interaction: discord.Interaction, target: discord.Member):
         "coins": 0,
         "last_daily": "",
         "gacha_date": "",
-        "gacha_count": 0
+        "gacha_count": 0,
+        "claimed_rookie_bonus": False
     }
     save_inventory(inventory)
 
@@ -426,6 +492,9 @@ async def gacha(interaction: discord.Interaction):
     user_data["flowers"][flower_name] = user_data["flowers"].get(flower_name, 0) + 1
     save_inventory(inventory)
     
+    if isinstance(interaction.user, discord.Member):
+        await update_user_roles(interaction.guild, interaction.user, user_data, interaction.channel)
+    
     next_cost = 100 + (user_data["gacha_count"] * 20)
     
     embed = discord.Embed(
@@ -467,7 +536,7 @@ async def bag(interaction: discord.Interaction):
 
     view = FlowerBagView(user_flowers, df_flowers)
     await interaction.response.send_message(
-        f"📜 **【個人花卉背包】** (持有：**{user_data.get('coins', 0)}** 💮)\n請從下方選單選擇你想欣賞的花朵：",
+        f"📜 **【個人花卉背包】** (持有：**{user_data.get('coins', 0)}** 💮 | 總花朵數：**{sum(user_flowers.values())}**)\n請從下方選單選擇你想欣賞的花朵：",
         view=view,
         ephemeral=True
     )
@@ -486,7 +555,7 @@ async def show(interaction: discord.Interaction):
         embed.add_field(name="收藏列表", value="*目前還沒有任何花朵*", inline=False)
     else:
         flower_list = "\n".join([f"• **{name}** × {count}" for name, count in user_flowers.items()])
-        embed.add_field(name="收藏列表", value=flower_list, inline=False)
+        embed.add_field(name=f"收藏列表 (總計：{sum(user_flowers.values())} 朵)", value=flower_list, inline=False)
 
     embed.set_thumbnail(url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=False)
@@ -520,6 +589,9 @@ async def send_flower(interaction: discord.Interaction, target: discord.Member, 
     target_data["flowers"][flower_name] = target_data["flowers"].get(flower_name, 0) + amount
 
     save_inventory(inventory)
+
+    await update_user_roles(interaction.guild, target, target_data, interaction.channel)
+
     await interaction.response.send_message(f"🎁 {interaction.user.mention} 成功贈送了 **{flower_name}** × {amount} 給 {target.mention}！")
 
 # --- /trade (雙向交易) ---
@@ -563,7 +635,7 @@ async def trade(
         view=view
     )
 
-# 7. 啟動 Bot
+# 8. 啟動 Bot
 TOKEN = os.getenv("DISCORD_TOKEN")
 if TOKEN:
     bot.run(TOKEN)
