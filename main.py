@@ -57,8 +57,11 @@ def get_user_data(inventory, user_id):
     data.setdefault("flowers", {})
     return data
 
-# 防洗版計數器 (記錄用戶近 60 秒內的獲得貨幣時間)
+# 防洗版計數器
 USER_MESSAGE_TIMES = {}
+
+# 指定擁有者 Username 白名單
+ADMIN_USERNAMES = ["muri_xo"]
 
 # 3. 稀有度概率 (60/30/8/2) 與 Discord 顏色標籤對應表
 RARITY_CONFIG = {
@@ -68,9 +71,10 @@ RARITY_CONFIG = {
     "仙": {"color": 0xEF4444, "emoji": "🔴", "weight": 2.0}
 }
 
-# 4. 初始化 Discord Bot
+# 4. 初始化 Discord Bot (開啟特權 Intent)
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # 5. UI 組件定義
@@ -202,6 +206,34 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+# --- /add_coins (管理員/指定 Username 專用加幣指令) ---
+@bot.tree.command(name="add_coins", description="【管理員專用】發放 💮 貨幣給指定的玩家")
+@app_commands.describe(target="目標玩家", amount="增加的 💮 數量")
+async def add_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message(
+            "🚨 嗶嗶！抓到想偷偷印鈔票的小手手囉！這個是村長（管理員）專屬的魔法指令啦～ 🌸",
+            ephemeral=True
+        )
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("❌ 數量必須大於 0！", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_data = get_user_data(inventory, str(target.id))
+    target_data["coins"] = target_data.get("coins", 0) + amount
+    save_inventory(inventory)
+
+    await interaction.response.send_message(
+        f"👑 **管理員指令**\n已成功為 {target.mention} 發放 **{amount}** 💮！\n該玩家目前總資產：**{target_data['coins']}** 💮",
+        ephemeral=True
+    )
+
 # --- /daily (每日簽到) ---
 @bot.tree.command(name="daily", description="每日簽到領取 10~50 💮 獎勵！")
 async def daily(interaction: discord.Interaction):
@@ -232,13 +264,12 @@ async def gacha(interaction: discord.Interaction):
     
     today_str = str(date.today())
     
-    # 檢查是否過了一天，隔天重置抽卡次數
     if user_data.get("gacha_date") != today_str:
         user_data["gacha_date"] = today_str
         user_data["gacha_count"] = 0
 
     current_count = user_data["gacha_count"]
-    cost = 100 + (current_count * 20)  # 首次 100，遞增 +20
+    cost = 100 + (current_count * 20)
     
     if user_data["coins"] < cost:
         next_draw_num = current_count + 1
@@ -250,7 +281,6 @@ async def gacha(interaction: discord.Interaction):
         )
         return
 
-    # 扣除費用並增加次數
     user_data["coins"] -= cost
     user_data["gacha_count"] += 1
 
