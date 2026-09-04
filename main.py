@@ -445,10 +445,10 @@ async def daily(interaction: discord.Interaction):
     save_inventory(inventory)
 
     await interaction.response.send_message(
-        f"💮 簽到成功！{interaction.user.mention} 獲得了 **{reward}** 💮！\n目前總資產：**{user_data['coins']}** 💮"
+        f"💮 簽到成功！{interaction.user.mention} 獲得了 **{reward}** 💮！"
     )
 
-# --- /gacha (動態扣費抽卡) ---
+# --- /gacha (動態扣費抽卡，已排除「凡」級花朵) ---
 @bot.tree.command(name="gacha", description="開啟一個花園盲盒！")
 async def gacha(interaction: discord.Interaction):
     inventory = load_inventory()
@@ -474,8 +474,14 @@ async def gacha(interaction: discord.Interaction):
     user_data["coins"] -= cost
     user_data["gacha_count"] += 1
 
-    rarities = list(RARITY_CONFIG.keys())
-    available_rarities = [r for r in rarities if r in df_flowers['rarity'].values]
+    # 排除「凡」級花朵，只允許抽卡池中的 普 / 珍 / 華 / 仙
+    gacha_rarities = [r for r in RARITY_CONFIG.keys() if r != "凡"]
+    available_rarities = [r for r in gacha_rarities if r in df_flowers['rarity'].values]
+    
+    if not available_rarities:
+        await interaction.response.send_message("❌ 盲盒資料庫中找不到可抽取的花種！", ephemeral=True)
+        return
+
     weights = [RARITY_CONFIG[r]["weight"] for r in available_rarities]
     
     selected_rarity = random.choices(available_rarities, weights=weights, k=1)[0]
