@@ -310,119 +310,7 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# ==================== 管理員專用測試與發放指令 ====================
-
-@bot.tree.command(name="add_coins", description="【管理員專用】發放 💮 貨幣給指定的玩家")
-@app_commands.describe(target="目標玩家", amount="增加的 💮 數量")
-async def add_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
-    is_admin = interaction.user.guild_permissions.administrator
-    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
-
-    if not (is_admin or is_specified_owner):
-        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
-        return
-
-    if amount <= 0:
-        await interaction.response.send_message("🌸 發放數量至少要 1 💮 以上才可以唷！", ephemeral=True)
-        return
-
-    inventory = load_inventory()
-    target_data = get_user_data(inventory, str(target.id))
-    target_data["coins"] = target_data.get("coins", 0) + amount
-    save_inventory(inventory)
-
-    await interaction.response.send_message(
-        f"👑 **管理員指令**\n已成功為 {target.mention} 發放 **{amount}** 💮！\n該玩家目前總資產：**{target_data['coins']}** 💮",
-        ephemeral=True
-    )
-
-@bot.tree.command(name="remove_coins", description="【管理員專用】扣除指定玩家的 💮 貨幣")
-@app_commands.describe(target="目標玩家", amount="扣除的 💮 數量")
-async def remove_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
-    is_admin = interaction.user.guild_permissions.administrator
-    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
-
-    if not (is_admin or is_specified_owner):
-        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
-        return
-
-    if amount <= 0:
-        await interaction.response.send_message("🌸 扣除數量必須大於 0！", ephemeral=True)
-        return
-
-    inventory = load_inventory()
-    target_data = get_user_data(inventory, str(target.id))
-    current_coins = target_data.get("coins", 0)
-    
-    target_data["coins"] = max(0, current_coins - amount)
-    save_inventory(inventory)
-
-    await interaction.response.send_message(
-        f"🛠️ **測試/管理員指令**\n已成功從 {target.mention} 的錢包扣除 **{amount}** 💮！\n目前剩餘：**{target_data['coins']}** 💮",
-        ephemeral=True
-    )
-
-@bot.tree.command(name="remove_flower", description="【管理員專用】移除指定玩家背包中的花朵")
-@app_commands.describe(target="目標玩家", flower_name="要移除的花朵名稱", amount="移除數量（預設 1）")
-async def remove_flower(interaction: discord.Interaction, target: discord.Member, flower_name: str, amount: int = 1):
-    is_admin = interaction.user.guild_permissions.administrator
-    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
-
-    if not (is_admin or is_specified_owner):
-        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
-        return
-
-    if amount <= 0:
-        await interaction.response.send_message("🌸 移除數量必須大於 0！", ephemeral=True)
-        return
-
-    inventory = load_inventory()
-    target_data = get_user_data(inventory, str(target.id))
-    user_flowers = target_data.get("flowers", {})
-
-    if flower_name not in user_flowers:
-        await interaction.response.send_message(f"❌ {target.display_name} 的背包裡沒有 **{flower_name}**！", ephemeral=True)
-        return
-
-    user_flowers[flower_name] -= amount
-    if user_flowers[flower_name] <= 0:
-        del user_flowers[flower_name]
-
-    save_inventory(inventory)
-    await interaction.response.send_message(
-        f"🛠️ **測試/管理員指令**\n已從 {target.mention} 背包中移除 **{flower_name}** × {amount}！",
-        ephemeral=True
-    )
-
-@bot.tree.command(name="reset_user", description="【管理員專用】完全重置指定玩家的所有資料")
-@app_commands.describe(target="目標玩家")
-async def reset_user(interaction: discord.Interaction, target: discord.Member):
-    is_admin = interaction.user.guild_permissions.administrator
-    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
-
-    if not (is_admin or is_specified_owner):
-        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
-        return
-
-    inventory = load_inventory()
-    target_id = str(target.id)
-
-    inventory[target_id] = {
-        "flowers": {},
-        "coins": 0,
-        "last_daily": "",
-        "gacha_date": "",
-        "gacha_count": 0,
-        "claimed_rookie_bonus": False
-    }
-    save_inventory(inventory)
-
-    await interaction.response.send_message(
-        f"🧹 **測試/管理員指令**\n已成功將 {target.mention} 的所有花朵、💮 錢包與簽到/抽卡紀錄重置為初始狀態！",
-        ephemeral=True
-    )
-
-# ============================================================
+# ==================== 玩家指令區 ====================
 
 # --- /daily (每日簽到 10~100 💮) ---
 @bot.tree.command(name="daily", description="每日簽到領取 10~100 💮 獎勵！")
@@ -562,6 +450,54 @@ async def show(interaction: discord.Interaction):
     embed.set_thumbnail(url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
+# --- /myflower (公開展示特定花朵) ---
+@bot.tree.command(name="myflower", description="向大家展示一朵你擁有的專屬花朵與圖片！")
+@app_commands.describe(flower_name="你想展示的花朵名稱")
+async def myflower(interaction: discord.Interaction, flower_name: str):
+    inventory = load_inventory()
+    user_id = str(interaction.user.id)
+    user_data = get_user_data(inventory, user_id)
+    user_flowers = user_data.get("flowers", {})
+
+    # 1. 檢查玩家是否擁有該花朵
+    if flower_name not in user_flowers or user_flowers[flower_name] <= 0:
+        await interaction.response.send_message(
+            f"❌ 你的背包裡沒有 **【{flower_name}】** 喔！不能展示未擁有的花朵，快去 `/gacha` 試試手氣吧～ 🌸",
+            ephemeral=True
+        )
+        return
+
+    # 2. 從資料庫讀取該花朵的詳細資訊
+    matched = df_flowers[df_flowers['Chinese'] == flower_name]
+    if matched.empty:
+        await interaction.response.send_message("❌ 找不到該花朵的詳細資料，可能已被圖鑑移除。", ephemeral=True)
+        return
+    
+    flower = matched.iloc[0]
+    rarity = flower.get('rarity', '凡')
+    config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
+
+    # 3. 建立展示 Embed
+    embed = discord.Embed(
+        title=f"🌸 【{flower['Chinese']}】",
+        description=f"📜 *{flower['description']}*",
+        color=config["color"]
+    )
+    embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{rarity}**", inline=True)
+    embed.add_field(name="👑 持有者", value=interaction.user.mention, inline=True)
+    embed.add_field(name="📦 擁有數量", value=f"**{user_flowers[flower_name]}** 朵", inline=True)
+    
+    if pd.notna(flower['Link']):
+        embed.set_image(url=flower['Link'])
+        
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+
+    # 4. 公開發送至頻道
+    await interaction.response.send_message(
+        content=f"🎉 {interaction.user.mention} 驕傲地向大家展示了祂珍藏的花朵！",
+        embed=embed
+    )
+
 # --- /send (贈送花朵) ---
 @bot.tree.command(name="send", description="贈送花朵給指定的玩家")
 @app_commands.describe(target="接收花朵的玩家", flower_name="要贈送的花朵名稱", amount="數量（預設 1）")
@@ -635,6 +571,118 @@ async def trade(
     await interaction.response.send_message(
         content=f"🤝 {target.mention}，{interaction.user.mention} 想用 **{my_flower}** × {my_amount} 與你交換 **{target_flower}** × {target_amount}！請點擊下方按鈕確認：",
         view=view
+    )
+
+# ==================== 管理員專用測試與發放指令 ====================
+
+@bot.tree.command(name="add_coins", description="【管理員專用】發放 💮 貨幣給指定的玩家")
+@app_commands.describe(target="目標玩家", amount="增加的 💮 數量")
+async def add_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("🌸 發放數量至少要 1 💮 以上才可以唷！", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_data = get_user_data(inventory, str(target.id))
+    target_data["coins"] = target_data.get("coins", 0) + amount
+    save_inventory(inventory)
+
+    await interaction.response.send_message(
+        f"👑 **管理員指令**\n已成功為 {target.mention} 發放 **{amount}** 💮！\n該玩家目前總資產：**{target_data['coins']}** 💮",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="remove_coins", description="【管理員專用】扣除指定玩家的 💮 貨幣")
+@app_commands.describe(target="目標玩家", amount="扣除的 💮 數量")
+async def remove_coins(interaction: discord.Interaction, target: discord.Member, amount: int):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("🌸 扣除數量必須大於 0！", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_data = get_user_data(inventory, str(target.id))
+    current_coins = target_data.get("coins", 0)
+    
+    target_data["coins"] = max(0, current_coins - amount)
+    save_inventory(inventory)
+
+    await interaction.response.send_message(
+        f"🛠️ **測試/管理員指令**\n已成功從 {target.mention} 的錢包扣除 **{amount}** 💮！\n目前剩餘：**{target_data['coins']}** 💮",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="remove_flower", description="【管理員專用】移除指定玩家背包中的花朵")
+@app_commands.describe(target="目標玩家", flower_name="要移除的花朵名稱", amount="移除數量（預設 1）")
+async def remove_flower(interaction: discord.Interaction, target: discord.Member, flower_name: str, amount: int = 1):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("🌸 移除數量必須大於 0！", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_data = get_user_data(inventory, str(target.id))
+    user_flowers = target_data.get("flowers", {})
+
+    if flower_name not in user_flowers:
+        await interaction.response.send_message(f"❌ {target.display_name} 的背包裡沒有 **{flower_name}**！", ephemeral=True)
+        return
+
+    user_flowers[flower_name] -= amount
+    if user_flowers[flower_name] <= 0:
+        del user_flowers[flower_name]
+
+    save_inventory(inventory)
+    await interaction.response.send_message(
+        f"🛠️ **測試/管理員指令**\n已從 {target.mention} 背包中移除 **{flower_name}** × {amount}！",
+        ephemeral=True
+    )
+
+@bot.tree.command(name="reset_user", description="【管理員專用】完全重置指定玩家的所有資料")
+@app_commands.describe(target="目標玩家")
+async def reset_user(interaction: discord.Interaction, target: discord.Member):
+    is_admin = interaction.user.guild_permissions.administrator
+    is_specified_owner = interaction.user.name in ADMIN_USERNAMES
+
+    if not (is_admin or is_specified_owner):
+        await interaction.response.send_message("🚨 嗶嗶！這個是管理員專屬的魔法指令啦～ 🌸", ephemeral=True)
+        return
+
+    inventory = load_inventory()
+    target_id = str(target.id)
+
+    inventory[target_id] = {
+        "flowers": {},
+        "coins": 0,
+        "last_daily": "",
+        "gacha_date": "",
+        "gacha_count": 0,
+        "claimed_rookie_bonus": False
+    }
+    save_inventory(inventory)
+
+    await interaction.response.send_message(
+        f"🧹 **測試/管理員指令**\n已成功將 {target.mention} 的所有花朵、💮 錢包與簽到/抽卡紀錄重置為初始狀態！",
+        ephemeral=True
     )
 
 # 8. 啟動 Bot
