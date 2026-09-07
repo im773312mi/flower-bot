@@ -72,14 +72,14 @@ AMARIBOT_ID = 339831437996752896
 
 # 3. 收集花種（不同種類數量）➔ 對應 Discord 身份組名稱設定
 ROLE_THRESHOLDS = {
-    "初級花農": 10,
-    "中級花農": 25,
-    "高級花農": 50,
-    "中級花匠": 70,
-    "高級花匠": 100,
-    "卓越花匠": 140,
-    "七彩花使": 180,
-    "繽紛花使": 250
+    "初級花農": 10,  # 集齊 10 種不同花朵
+    "中級花農": 25,  # 集齊 25 種不同花朵
+    "高級花農": 50,  # 集齊 50 種不同花朵
+    "中級花匠": 70,  # 集齊 70 種不同花朵
+    "高級花匠": 100, # 集齊 100 種不同花朵
+    "卓越花匠": 140, # 集齊 140 種不同花朵
+    "七彩花使": 180, # 集齊 180 種不同花朵
+    "繽紛花使": 250  # 集齊 250 種不同花朵
 }
 
 # 4. 稀有度顏色與 Discord 標籤對應表
@@ -97,7 +97,7 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 自動檢測並發放花朵門檻身份組函式
+# 自動檢測並發放花朵門檻身份組函式（晉升時自動在頻道發送恭喜訊息）
 async def update_user_roles(guild: discord.Guild, member: discord.Member, user_data: dict, channel: discord.TextChannel = None):
     if not guild or not member:
         return
@@ -112,6 +112,13 @@ async def update_user_roles(guild: discord.Guild, member: discord.Member, user_d
                 try:
                     await member.add_roles(role)
                     print(f"✅ 已成功發放身份組【{role_name}】給 {member.display_name} (解鎖種類：{unique_species_count})")
+                    
+                    # 頻道晉升宣佈
+                    target_channel = channel or guild.system_channel
+                    if target_channel:
+                        await target_channel.send(
+                            f"🎉 恭喜 {member.mention} 集齊 **{unique_species_count}** 種花朵，成功晉升為 **【{role_name}】**！🌸✨"
+                        )
                 except Exception as e:
                     print(f"⚠️ 發放身份組【{role_name}】失敗: {e}")
 
