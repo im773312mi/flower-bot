@@ -70,16 +70,16 @@ ADMIN_USERNAMES = ["muri_xo"]
 # AmariBot 的官方 Bot ID
 AMARIBOT_ID = 339831437996752896
 
-# 3. 收集花朵總數 ➔ 對應 Discord 身份組名稱設定
+# 3. 收集花種（不同種類數量）➔ 對應 Discord 身份組名稱設定
 ROLE_THRESHOLDS = {
-    "初級花農": 10,
-    "中級花農": 25,
-    "高級花農": 50,
-    "中級花匠": 70,
-    "高級花匠": 100,
-    "卓越花匠": 140,
-    "七彩花使": 180,
-    "繽紛花使": 250
+    "初級花農": 10,  # 集齊 10 種不同花朵
+    "中級花農": 25,  # 集齊 25 種不同花朵
+    "高級花農": 50,  # 集齊 50 種不同花朵
+    "中級花匠": 70,  # 集齊 70 種不同花朵
+    "高級花匠": 100, # 集齊 100 種不同花朵
+    "卓越花匠": 140, # 集齊 140 種不同花朵
+    "七彩花使": 180, # 集齊 180 種不同花朵
+    "繽紛花使": 250  # 集齊 250 種不同花朵
 }
 
 # 4. 稀有度顏色與 Discord 標籤對應表
@@ -97,21 +97,22 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 自動檢測並發放花朵門檻身份組函式
+# 自動檢測並發放花朵門檻身份組函式（依據解鎖花種種類數量）
 async def update_user_roles(guild: discord.Guild, member: discord.Member, user_data: dict, channel: discord.TextChannel = None):
     if not guild or not member:
         return
     
     user_flowers = user_data.get("flowers", {})
-    total_flowers = sum(user_flowers.values())
+    # 計算擁有「不同種類」的花朵總數（排除數量小於等於 0 的花）
+    unique_species_count = len([f for f, count in user_flowers.items() if count > 0])
     
     for role_name, required_count in ROLE_THRESHOLDS.items():
-        if total_flowers >= required_count:
+        if unique_species_count >= required_count:
             role = discord.utils.get(guild.roles, name=role_name)
             if role and role not in member.roles:
                 try:
                     await member.add_roles(role)
-                    print(f"✅ 已成功發放身份組【{role_name}】給 {member.display_name}")
+                    print(f"✅ 已成功發放身份組【{role_name}】給 {member.display_name} (解鎖種類：{unique_species_count})")
                 except Exception as e:
                     print(f"⚠️ 發放身份組【{role_name}】失敗: {e}")
 
@@ -336,7 +337,7 @@ async def daily(interaction: discord.Interaction):
         f"💮 簽到成功！{interaction.user.mention} 獲得了 **{reward}** 💮！"
     )
 
-# --- /gacha (動態扣費抽卡，已排除「凡」級花朵) ---
+# --- /gacha (動態扣費抽卡) ---
 @bot.tree.command(name="gacha", description="開啟一個花園盲盒！")
 async def gacha(interaction: discord.Interaction):
     inventory = load_inventory()
@@ -424,9 +425,12 @@ async def bag(interaction: discord.Interaction):
         )
         return
 
+    unique_count = len([f for f, count in user_flowers.items() if count > 0])
+    total_count = sum(user_flowers.values())
+
     view = FlowerBagView(user_flowers, df_flowers)
     await interaction.response.send_message(
-        f"📜 **【個人花卉背包】** (持有：**{user_data.get('coins', 0)}** 💮 | 總花朵數：**{sum(user_flowers.values())}**)\n請從下方選單選擇你想欣賞的花朵：",
+        f"📜 **【個人花卉背包】** (持有：**{user_data.get('coins', 0)}** 💮 | 解鎖圖鑑：**{unique_count}** 種 | 總花朵數：**{total_count}** 朵)\n請從下方選單選擇你想欣賞的花朵：",
         view=view,
         ephemeral=True
     )
@@ -444,8 +448,10 @@ async def show(interaction: discord.Interaction):
     if not user_flowers:
         embed.add_field(name="收藏列表", value="*目前還沒有任何花朵*", inline=False)
     else:
+        unique_count = len([f for f, count in user_flowers.items() if count > 0])
+        total_count = sum(user_flowers.values())
         flower_list = "\n".join([f"• **{name}** × {count}" for name, count in user_flowers.items()])
-        embed.add_field(name=f"收藏列表 (總計：{sum(user_flowers.values())} 朵)", value=flower_list, inline=False)
+        embed.add_field(name=f"收藏列表 (已解鎖：{unique_count} 種 | 共 {total_count} 朵)", value=flower_list, inline=False)
 
     embed.set_thumbnail(url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=False)
@@ -459,7 +465,6 @@ async def myflower(interaction: discord.Interaction, flower_name: str):
     user_data = get_user_data(inventory, user_id)
     user_flowers = user_data.get("flowers", {})
 
-    # 1. 檢查玩家是否擁有該花朵
     if flower_name not in user_flowers or user_flowers[flower_name] <= 0:
         await interaction.response.send_message(
             f"❌ 你的背包裡沒有 **【{flower_name}】** 喔！不能展示未擁有的花朵，快去 `/gacha` 試試手氣吧～ 🌸",
@@ -467,7 +472,6 @@ async def myflower(interaction: discord.Interaction, flower_name: str):
         )
         return
 
-    # 2. 從資料庫讀取該花朵的詳細資訊
     matched = df_flowers[df_flowers['Chinese'] == flower_name]
     if matched.empty:
         await interaction.response.send_message("❌ 找不到該花朵的詳細資料，可能已被圖鑑移除。", ephemeral=True)
@@ -477,7 +481,6 @@ async def myflower(interaction: discord.Interaction, flower_name: str):
     rarity = flower.get('rarity', '凡')
     config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
 
-    # 3. 建立展示 Embed
     embed = discord.Embed(
         title=f"🌸 【{flower['Chinese']}】",
         description=f"📜 *{flower['description']}*",
@@ -492,7 +495,6 @@ async def myflower(interaction: discord.Interaction, flower_name: str):
         
     embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
-    # 4. 公開發送至頻道
     await interaction.response.send_message(
         content=f"🎉 {interaction.user.mention} 驕傲地向大家展示了祂珍藏的花朵！",
         embed=embed
