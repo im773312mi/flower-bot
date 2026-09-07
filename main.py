@@ -72,14 +72,14 @@ AMARIBOT_ID = 339831437996752896
 
 # 3. 收集花種（不同種類數量）➔ 對應 Discord 身份組名稱設定
 ROLE_THRESHOLDS = {
-    "初級花農": 10,  # 集齊 10 種不同花朵
-    "中級花農": 25,  # 集齊 25 種不同花朵
-    "高級花農": 50,  # 集齊 50 種不同花朵
-    "中級花匠": 70,  # 集齊 70 種不同花朵
-    "高級花匠": 100, # 集齊 100 種不同花朵
-    "卓越花匠": 140, # 集齊 140 種不同花朵
-    "七彩花使": 180, # 集齊 180 種不同花朵
-    "繽紛花使": 250  # 集齊 250 種不同花朵
+    "初級花農": 10,
+    "中級花農": 25,
+    "高級花農": 50,
+    "中級花匠": 70,
+    "高級花匠": 100,
+    "卓越花匠": 140,
+    "七彩花使": 180,
+    "繽紛花使": 250
 }
 
 # 4. 稀有度顏色與 Discord 標籤對應表
@@ -97,7 +97,7 @@ intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# 自動檢測並發放花朵門檻身份組函式（依據解鎖花種種類數量）
+# 自動檢測並發放花朵門檻身份組函式
 async def update_user_roles(guild: discord.Guild, member: discord.Member, user_data: dict, channel: discord.TextChannel = None):
     if not guild or not member:
         return
@@ -131,36 +131,44 @@ class FlowerSelect(discord.ui.Select):
         self.df_flowers = df_flowers
 
     async def callback(self, interaction: discord.Interaction):
-        flower_name = self.values[0]
-        matched = self.df_flowers[self.df_flowers['Chinese'] == flower_name]
-        
-        if matched.empty:
-            await interaction.response.send_message("❌ 找不到該花朵的詳細資料。", ephemeral=True)
-            return
-        
-        flower = matched.iloc[0]
-        rarity = flower.get('rarity', '凡')
-        config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
+        try:
+            flower_name = self.values[0]
+            matched = self.df_flowers[self.df_flowers['Chinese'] == flower_name]
+            
+            if matched.empty:
+                await interaction.response.send_message("❌ 找不到該花朵的詳細資料。", ephemeral=True)
+                return
+            
+            flower = matched.iloc[0]
+            rarity = str(flower.get('rarity', '凡')).strip()
+            config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
 
-        embed = discord.Embed(
-            title=f"🌸 【{flower['Chinese']}】",
-            description=f"📜 *{flower['description']}*",
-            color=config["color"]
-        )
-        embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{rarity}**", inline=True)
-        
-        if pd.notna(flower['Link']):
-            embed.set_image(url=flower['Link'])
+            embed = discord.Embed(
+                title=f"🌸 【{flower['Chinese']}】",
+                description=f"📜 *{flower.get('description', '')}*",
+                color=config["color"]
+            )
+            embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{rarity}**", inline=True)
+            
+            link = flower.get('Link')
+            if pd.notna(link) and str(link).startswith('http'):
+                embed.set_image(url=str(link))
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"❌ 背包選單回應錯誤: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ 顯示花朵資料時發生錯誤，請再試一次。", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ 顯示花朵資料時發生錯誤，請再試一次。", ephemeral=True)
 
 class FlowerBagView(discord.ui.View):
     def __init__(self, user_flowers, df_flowers):
         super().__init__()
         self.add_item(FlowerSelect(user_flowers, df_flowers))
 
-class MyFlowerSelect(discord.ui.Select):
-    """/myflower 公開展示下拉選單組件"""
+class ShowSelect(discord.ui.Select):
+    """/show 公開展示特定花朵卡片選單組件"""
     def __init__(self, user_flowers, df_flowers):
         options = [
             discord.SelectOption(
@@ -169,57 +177,64 @@ class MyFlowerSelect(discord.ui.Select):
             )
             for flower_name, count in user_flowers.items()
         ]
-        super().__init__(placeholder="🌸 選擇你想公開展示的花朵...", options=options[:25])
+        super().__init__(placeholder="🌸 選擇你想公開展示的花朵卡片...", options=options[:25])
         self.df_flowers = df_flowers
 
     async def callback(self, interaction: discord.Interaction):
-        flower_name = self.values[0]
-        matched = self.df_flowers[self.df_flowers['Chinese'] == flower_name]
-        
-        if matched.empty:
-            await interaction.response.send_message("❌ 找不到該花朵的詳細資料。", ephemeral=True)
-            return
-        
-        flower = matched.iloc[0]
-        rarity = flower.get('rarity', '凡')
-        config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
-
-        inventory = load_inventory()
-        user_data = get_user_data(inventory, str(interaction.user.id))
-        user_flowers = user_data.get("flowers", {})
-        amount = user_flowers.get(flower_name, 0)
-
-        embed = discord.Embed(
-            title=f"🌸 【{flower['Chinese']}】",
-            description=f"📜 *{flower['description']}*",
-            color=config["color"]
-        )
-        embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{rarity}**", inline=True)
-        embed.add_field(name="👑 持有者", value=interaction.user.mention, inline=True)
-        embed.add_field(name="📦 擁有數量", value=f"**{amount}** 朵", inline=True)
-        
-        if pd.notna(flower['Link']):
-            embed.set_image(url=flower['Link'])
+        try:
+            flower_name = self.values[0]
+            matched = self.df_flowers[self.df_flowers['Chinese'] == flower_name]
             
-        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            if matched.empty:
+                await interaction.response.send_message("❌ 找不到該花朵的詳細資料。", ephemeral=True)
+                return
+            
+            flower = matched.iloc[0]
+            rarity = str(flower.get('rarity', '凡')).strip()
+            config = RARITY_CONFIG.get(rarity, {"color": 0xFFC0CB, "emoji": "🌸"})
 
-        # 1. 公開發送展示卡至頻道
-        if interaction.channel:
-            await interaction.channel.send(
-                content=f"🎉 {interaction.user.mention} 驕傲地向大家展示了祂珍藏的花朵！",
-                embed=embed
+            inventory = load_inventory()
+            user_data = get_user_data(inventory, str(interaction.user.id))
+            user_flowers = user_data.get("flowers", {})
+            amount = user_flowers.get(flower_name, 0)
+
+            embed = discord.Embed(
+                title=f"🌸 【{flower['Chinese']}】",
+                description=f"📜 *{flower.get('description', '')}*",
+                color=config["color"]
             )
+            embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{rarity}**", inline=True)
+            embed.add_field(name="👑 持有者", value=interaction.user.mention, inline=True)
+            embed.add_field(name="📦 擁有數量", value=f"**{amount}** 朵", inline=True)
+            
+            link = flower.get('Link')
+            if pd.notna(link) and str(link).startswith('http'):
+                embed.set_image(url=str(link))
+                
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
 
-        # 2. 回覆私密選單訊息確認已完成展示
-        await interaction.response.edit_message(
-            content=f"✅ 已成功將 **【{flower_name}】** 公開展示到頻道囉！🌸",
-            view=None
-        )
+            if interaction.channel:
+                await interaction.channel.send(
+                    content=f"🎉 {interaction.user.mention} 驕傲地向大家展示了祂珍藏的花朵！",
+                    embed=embed
+                )
 
-class MyFlowerView(discord.ui.View):
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"✅ 已成功將 **【{flower_name}】** 的精美卡片公開展示到頻道囉！🌸",
+                    ephemeral=True
+                )
+        except Exception as e:
+            print(f"❌ 公開展示卡片錯誤: {e}")
+            if not interaction.response.is_done():
+                await interaction.response.send_message("❌ 展示花朵卡片時發生錯誤，請再試一次。", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ 展示花朵卡片時發生錯誤，請再試一次。", ephemeral=True)
+
+class ShowView(discord.ui.View):
     def __init__(self, user_flowers, df_flowers):
         super().__init__()
-        self.add_item(MyFlowerSelect(user_flowers, df_flowers))
+        self.add_item(ShowSelect(user_flowers, df_flowers))
 
 class TradeView(discord.ui.View):
     def __init__(self, sender: discord.Member, target: discord.Member, my_flower: str, my_amount: int, target_flower: str, target_amount: int):
@@ -425,7 +440,6 @@ async def gacha(interaction: discord.Interaction):
     user_data["coins"] -= cost
     user_data["gacha_count"] += 1
 
-    # 排除「凡」級花朵，只允許抽卡池中的 普 / 珍 / 華 / 仙
     gacha_rarities = [r for r in RARITY_CONFIG.keys() if r != "凡"]
     available_rarities = [r for r in gacha_rarities if r in df_flowers['rarity'].values]
     
@@ -453,14 +467,15 @@ async def gacha(interaction: discord.Interaction):
     
     embed = discord.Embed(
         title="🌸 花園盲盒開啟成功！",
-        description=f"獲得花種：**【{flower_name}】**\n\n📜 *{flower['description']}*",
+        description=f"獲得花種：**【{flower_name}】**\n\n📜 *{flower.get('description', '')}*",
         color=config["color"]
     )
     embed.add_field(name="✨ 稀有度", value=f"{config['emoji']} **{selected_rarity}**", inline=True)
     embed.add_field(name="💸 本次消耗", value=f"**{cost}** 💮", inline=True)
     
-    if pd.notna(flower['Link']):
-        embed.set_image(url=flower['Link'])
+    link = flower.get('Link')
+    if pd.notna(link) and str(link).startswith('http'):
+        embed.set_image(url=str(link))
         
     embed.set_footer(
         text=f"今日第 {user_data['gacha_count']} 次抽卡 • 下次抽卡需要 {next_cost} 💮", 
@@ -473,7 +488,7 @@ async def gacha(interaction: discord.Interaction):
     )
 
 # --- /bag (私密背包選單) ---
-@bot.tree.command(name="bag", description="查看私密背包並欣賞花朵圖片")
+@bot.tree.command(name="bag", description="查看私密背包與欣賞花朵圖鑑（僅自己可見）")
 async def bag(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
@@ -497,9 +512,9 @@ async def bag(interaction: discord.Interaction):
         ephemeral=True
     )
 
-# --- /show (公開展示清單) ---
-@bot.tree.command(name="show", description="向頻道大家展示你擁有的花朵清單")
-async def show(interaction: discord.Interaction):
+# --- /myflowers (公開展示所有花朵收藏清單) ---
+@bot.tree.command(name="myflowers", description="向大家展示你擁有的所有花朵收藏清單")
+async def myflowers(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
     user_data = get_user_data(inventory, user_id)
@@ -518,9 +533,9 @@ async def show(interaction: discord.Interaction):
     embed.set_thumbnail(url=interaction.user.display_avatar.url)
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
-# --- /myflower (選取並公開展示特定花朵) ---
-@bot.tree.command(name="myflower", description="選取並向大家公開展示你擁有的專屬花朵與圖片！")
-async def myflower(interaction: discord.Interaction):
+# --- /show (選取並公開展示特定花朵卡片) ---
+@bot.tree.command(name="show", description="從選單挑選一朵花，向頻道公開展示它的精美卡片！")
+async def show(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
     user_data = get_user_data(inventory, user_id)
@@ -533,9 +548,9 @@ async def myflower(interaction: discord.Interaction):
         )
         return
 
-    view = MyFlowerView(user_flowers, df_flowers)
+    view = ShowView(user_flowers, df_flowers)
     await interaction.response.send_message(
-        "📜 **【公開展示選單】**\n請從下方選單選擇你想公開展示給頻道的花朵：",
+        "📜 **【公開展示選單】**\n請從下方選單選擇你想公開展示給頻道的花朵卡片：",
         view=view,
         ephemeral=True
     )
