@@ -3,11 +3,17 @@ import json
 import random
 import time
 import re
-from datetime import date
+from datetime import datetime
+import zoneinfo
 import discord
 from discord.ext import commands
 from discord import app_commands
 import pandas as pd
+
+# 取得香港時間（HKT）當日日期字串 (YYYY-MM-DD)
+def get_hk_today():
+    hk_tz = zoneinfo.ZoneInfo("Asia/Hong_Kong")
+    return str(datetime.now(hk_tz).date())
 
 # 1. 讀取花種資料庫
 EXCEL_FILE = "flowers.xlsx"
@@ -113,7 +119,6 @@ async def update_user_roles(guild: discord.Guild, member: discord.Member, user_d
                     await member.add_roles(role)
                     print(f"✅ 已成功發放身份組【{role_name}】給 {member.display_name} (解鎖種類：{unique_species_count})")
                     
-                    # 頻道晉升宣佈
                     target_channel = channel or guild.system_channel
                     if target_channel:
                         await target_channel.send(
@@ -397,14 +402,14 @@ async def on_message(message):
 
 # ==================== 玩家指令區 ====================
 
-# --- /daily (每日簽到 10~100 💮) ---
+# --- /daily (每日簽到 10~100 💮，香港時間 00:00 重置) ---
 @bot.tree.command(name="daily", description="每日簽到領取 10~100 💮 獎勵！")
 async def daily(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
     user_data = get_user_data(inventory, user_id)
 
-    today_str = str(date.today())
+    today_str = get_hk_today()
     if user_data.get("last_daily") == today_str:
         await interaction.response.send_message(
             "💤 今天的 💮 已經裝進口袋囉！小精靈正在休假中，明天再來花園簽到吧～ 🌸", 
@@ -421,14 +426,14 @@ async def daily(interaction: discord.Interaction):
         f"💮 簽到成功！{interaction.user.mention} 獲得了 **{reward}** 💮！"
     )
 
-# --- /gacha (動態扣費抽卡) ---
+# --- /gacha (動態扣費抽卡，香港時間 00:00 重置首抽價格) ---
 @bot.tree.command(name="gacha", description="開啟一個花園盲盒！")
 async def gacha(interaction: discord.Interaction):
     inventory = load_inventory()
     user_id = str(interaction.user.id)
     user_data = get_user_data(inventory, user_id)
     
-    today_str = str(date.today())
+    today_str = get_hk_today()
     
     if user_data.get("gacha_date") != today_str:
         user_data["gacha_date"] = today_str
