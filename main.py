@@ -345,14 +345,26 @@ async def on_member_update(before, after):
 @bot.event
 async def on_message(message):
     if message.author.id == AMARIBOT_ID or message.author.name.lower() == "amaribot":
-        if message.mentions:
-            leveled_user = message.mentions[0]
+        if message.mentions or message.embeds:
+            leveled_user = message.mentions[0] if message.mentions else None
             
-            match = re.search(r'(?:level|lv|LV|Level)\s*(\d+)', message.content)
+            # 組合普通訊息與 Embed 內容
+            full_text = message.content or ""
+            for embed in message.embeds:
+                if embed.title: full_text += " " + embed.title
+                if embed.description: full_text += " " + embed.description
+                for field in embed.fields:
+                    full_text += f" {field.name} {field.value}"
+
+            # 移除 Discord ID 標籤 (例如 <@1485674937413931019>)，防止誤抓 User ID
+            clean_text = re.sub(r'<[@#&]!?\d+>', '', full_text)
+
+            # 抓取升級數字 (如 Level 2, Lv.2, lv 2, 成長到了 Level 2)
+            match = re.search(r'(?:level|lv)\.?\s*(\d+)', clean_text, re.IGNORECASE)
             if not match:
-                match = re.search(r'(\d+)', message.content)
-            
-            if match:
+                match = re.search(r'(\d+)', clean_text)
+
+            if match and leveled_user:
                 lvl_num = int(match.group(1))
                 reward_flower = None
                 
